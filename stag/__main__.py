@@ -95,7 +95,8 @@ def print_menu_create_db():
     sys.stderr.write(f"  {bco.LightBlue}-C{bco.ResetAll}  FILE  save intermediate cross validation results {bco.LightMagenta}[None]{bco.ResetAll}\n")
     sys.stderr.write(f"  {bco.LightBlue}-p{bco.ResetAll}  FILE  protein sequences, if they were used for the alignment {bco.LightMagenta}[None]{bco.ResetAll}\n")
     sys.stderr.write(f"  {bco.LightBlue}-e{bco.ResetAll}  STR   penalty for the logistic regression {bco.LightMagenta}[\"l1\"]{bco.ResetAll}\n")
-    sys.stderr.write(f"  {bco.LightBlue}-E{bco.ResetAll}  STR   solver for the logistic regrssion {bco.LightMagenta}[\"liblinear\"]{bco.ResetAll}\n")
+    sys.stderr.write(f"  {bco.LightBlue}-E{bco.ResetAll}  STR   solver for the logistic regression {bco.LightMagenta}[\"liblinear\"]{bco.ResetAll}\n")
+    sys.stderr.write(f"  {bco.LightBlue}-t{bco.ResetAll}  INT   number of threads {bco.LightMagenta}[1]{bco.ResetAll}\n")
     sys.stderr.write(f"  {bco.LightBlue}-v{bco.ResetAll}  INT   verbose level: 1=error, 2=warning, 3=message, 4+=debugging {bco.LightMagenta}[3]{bco.ResetAll}\n\n")
 # ------------------------------------------------------------------------------
 def print_menu_classify():
@@ -140,7 +141,7 @@ def print_menu_train():
     sys.stderr.write(f"  {bco.LightBlue}-m{bco.ResetAll}  INT   threshold for the number of features per sequence (percentage) {bco.LightMagenta}[0]{bco.ResetAll}\n")
     sys.stderr.write(f"  {bco.LightBlue}-v{bco.ResetAll}  INT   verbose level: 1=error, 2=warning, 3=message, 4+=debugging {bco.LightMagenta}[3]{bco.ResetAll}\n\n")
     sys.stderr.write(f"  {bco.LightBlue}-e{bco.ResetAll}  STR   penalty for the logistic regression {bco.LightMagenta}[\"l1\"]{bco.ResetAll}\n")
-    sys.stderr.write(f"  {bco.LightBlue}-E{bco.ResetAll}  STR   solver for the logistic regrssion {bco.LightMagenta}[\"liblinear\"]{bco.ResetAll}\n\n")
+    sys.stderr.write(f"  {bco.LightBlue}-E{bco.ResetAll}  STR   solver for the logistic regression {bco.LightMagenta}[\"liblinear\"]{bco.ResetAll}\n\n")
     sys.stderr.write(f"{bco.Cyan}Note:{bco.ResetAll} if -p is provided, then the alignment will be done at the level\nof the proteins and then converted to gene alignment (from -i input).\nThe order of the sequences in -i and -p should be the same.\n\n")
 # ------------------------------------------------------------------------------
 def print_menu_correct_seq():
@@ -316,7 +317,7 @@ def main(argv=None):
         # call the function to create the database
         create_db.create_db(args.aligned_sequences, args.taxonomy, args.verbose, args.output, args.use_cm_align,
                             args.template_al, args.intermediate_cross_val, tool_version, args.protein_fasta_input,
-                            args.penalty_logistic, args.solver_logistic)
+                            args.penalty_logistic, args.solver_logistic, procs=args.threads)
 
     # --------------------------------------------------------------------------
     # TRAIN routine
