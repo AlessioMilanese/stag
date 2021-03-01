@@ -10,6 +10,8 @@ import glob
 import tempfile
 import errno
 import tarfile
+import json
+import pathlib
 
 from . import __version__ as tool_version
 from .helpers import bco, print_error, check_file_exists, check_file_doesnt_exists
@@ -24,7 +26,8 @@ import stag.train_genome as train_genome
 import stag.convert_ali as convert_ali
 
 def handle_error(error, help_f):
-    help_f()
+    if help_f:
+        help_f()
     print_error()
     print(error, file=sys.stderr)
     sys.exit(1)
@@ -174,7 +177,8 @@ def print_menu_classify_genome():
     sys.stderr.write(f"  {bco.LightBlue}-o{bco.ResetAll}  DIR    output directory {bco.LightMagenta}[required]{bco.ResetAll}\n")
     sys.stderr.write(f"  {bco.LightBlue}-l{bco.ResetAll}         long output (with more information about the classification) {bco.LightMagenta}[False]\n")
     sys.stderr.write(f"  {bco.LightBlue}-v{bco.ResetAll}  INT    verbose level: 1=error, 2=warning, 3=message, 4+=debugging {bco.LightMagenta}[3]{bco.ResetAll}\n")
-    sys.stderr.write(f"  {bco.LightBlue}-r{bco.ResetAll}         use all genes above the filter {bco.LightMagenta}[False]{bco.ResetAll}\n\n")
+    sys.stderr.write(f"  {bco.LightBlue}-r{bco.ResetAll}         use all genes above the filter {bco.LightMagenta}[False]{bco.ResetAll}\n")
+    sys.stderr.write(f"  {bco.LightBlue}-G{bco.ResetAll}  FILE   set of identified marker genes in lieu of a genomic sequence\n\n")
 # ------------------------------------------------------------------------------
 def print_menu_convert_ali():
     sys.stderr.write("\n")
@@ -223,6 +227,7 @@ def main(argv=None):
     parser.add_argument('-T', action="store", dest='file_thresholds', default=None, help='file with the thresholds for the genes in the genome classifier') # basically the minimum score required
     parser.add_argument('-e', action="store", default="l1", dest='penalty_logistic', help='penalty for the logistic regression',choices=['l1','l2','none'])
     parser.add_argument('-E', action="store", default="liblinear", dest='solver_logistic', help='solver for the logistic regression',choices=['newton-cg', 'lbfgs', 'liblinear', 'sag', 'saga'])
+    parser.add_argument('-G', action="store", dest="marker_genes", default=None, help="Set of identified marker genes in lieu of a genomic sequence")
 
     parser.add_argument('--version', action='version', version='%(prog)s {0} on python {1}'.format(tool_version, sys.version.split()[0]))
 
@@ -517,12 +522,14 @@ def main(argv=None):
         # check input
         if not args.database:
             error = "missing <database> (-d)"
-        elif not args.fasta_input and not args.dir_input:
-            error = "you need to provide at least -i or -D."
-        elif args.fasta_input and args.dir_input:
-            error = "you need to provide -i or -D, not both."
+        elif not any((args.fasta_input, args.dir_input, args.marker_genes)):
+            error = "you need to provide at least -i, -D, or -G."
+        elif sum(map(bool, (args.fasta_input, args.dir_input, args.marker_genes))) != 1:
+            error = "options -i, -D, and -G are mutually exclusive"
         elif args.dir_input and not os.path.isdir(args.dir_input):
             error = "-D is not a directory."
+        elif args.marker_genes and not os.path.isfile(args.marker_genes):
+            error = "-G is not a valid file."
         elif not args.output:
             # check that output dir is defined
             error = "missing output directory (-o)"
@@ -531,10 +538,12 @@ def main(argv=None):
             handle_error(error, print_menu_classify_genome)
 
         # find files to classify
-        list_files = list()
+        marker_genes, list_files = list(), list()
         if args.fasta_input:
             check_file_exists(args.fasta_input, isfasta = True)
             list_files.append(args.fasta_input)
+        elif args.marker_genes:
+            marker_genes = [args.marker_genes] #json.load(open(args.marker_genes))
         else:
             for f in os.listdir(args.dir_input):
                 f = os.path.join(args.dir_input, f)
@@ -556,15 +565,20 @@ def main(argv=None):
             else:
                 handle_error("output directory (-o) exists already.", None)
 
+        if list_files:
+            from stag.classify_genome import validate_genome_files
+            validate_genome_files(list_files)
+
         # create output dir
         try:
             pathlib.Path(args.output).mkdir(exist_ok=True, parents=True)
         except:
-            handle_error("creating the output directory (-o).", None)
+            handle_error("creating the output directory (-o). {}".format(args.output), None)
 
         # call the function
-        classify_genome.classify_genome(args.database, list_files, args.verbose, args.threads, args.output,
-                                        args.long_out, tool_version, args.keep_all_genes)
+        classify_genome.classify_genome(args.database, genome_files=list_files, marker_genes=marker_genes,
+                                        verbose=args.verbose, threads=args.threads, output=args.output,
+                                        long_out=args.long_out, keep_all_genes=args.keep_all_genes)
 
 
     return None        # success
