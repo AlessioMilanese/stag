@@ -29,227 +29,7 @@ import h5py
 import tempfile
 import shutil
 
-#===============================================================================
-#                          CLASS FOR THE TAXONOMY
-#===============================================================================
-class Taxonomy:
-    # create class -------------------------------------------------------------
-    def __init__(self, file_name):
-        self.file_name = file_name
-        self.child_nodes = dict()
-        self.tree_root = "tree_root"
-        self.child_nodes[self.tree_root] = set()
-        self.last_level_to_genes = dict()
-        self.all_gene_ids = list()
-        self.number_of_taxonomic_levels = 0
-        self.annotation_per_gene = dict()
-
-    # load taxonomy from the defined file --------------------------------------
-    def load_from_file(self):
-        o = open(self.file_name,"r")
-
-        first_line = o.readline().rstrip().split("\t")
-        first_line = [first_line[0]]+first_line[1].split(";")
-        o.seek(0)
-        self.number_of_taxonomic_levels = len(first_line) - 1
-
-        for line in o:
-            # expected line: gene1\tBacteria\tFirmicutes\t...
-            vals = line.rstrip().replace("/","-").split("\t")
-            vals = [vals[0]]+vals[1].split(";")
-            if self.number_of_taxonomic_levels != len(vals)-1 :
-                sys.stderr.write("Error: taxonomy file does not have the same number of taxonomic levels in:\n")
-                sys.stderr.write("  "+line+"\n")
-                sys.exit(1)
-
-            # we add the annotation_per_gene:
-            self.annotation_per_gene[vals[0]] = list(vals[1:])
-
-            # we enter the first level, to the root:
-            self.child_nodes[self.tree_root].add(vals[1])
-            if not(vals[1] in self.child_nodes):
-                self.child_nodes[vals[1]] = set()
-            # we enter all remaining levels
-            for i in range(2,len(vals)-1):
-                # first we enter that this is a child
-                self.child_nodes[vals[i-1]].add(vals[i])
-                # and second, we create a node if there is not already
-                if not(vals[i] in self.child_nodes):
-                    self.child_nodes[vals[i]] = set()
-            # We add the last level
-            self.child_nodes[vals[-2]].add(vals[-1])
-            # Finally we add from the last level to the genes ids
-            if not(vals[-1] in self.last_level_to_genes):
-                self.last_level_to_genes[vals[-1]] = set()
-            self.last_level_to_genes[vals[-1]].add(vals[0])
-            # and we add it to the list of gene ids
-            self.all_gene_ids.append(vals[0])
-
-        self.all_gene_ids.sort() # we sort the list, so that search should be faster
-        o.close()
-
-    # make a copy of this taxonomy ---------------------------------------------
-    def copy(self):
-        temp = Taxonomy(self.file_name)
-        temp.child_nodes = dict()
-        temp.tree_root = "tree_root"
-        for i in self.child_nodes:
-            temp.child_nodes[i] = set(self.child_nodes[i])
-        temp.last_level_to_genes = dict()
-        for i in self.last_level_to_genes:
-            temp.last_level_to_genes[i] = set(self.last_level_to_genes[i])
-        temp.all_gene_ids = list(self.all_gene_ids)
-        temp.number_of_taxonomic_levels = self.number_of_taxonomic_levels
-        for i in self.annotation_per_gene:
-            temp.annotation_per_gene[i] = list(self.annotation_per_gene[i])
-        return temp
-
-    # return the classification of one gene
-    def extract_full_tax_from_gene(self, gene_id):
-        return self.annotation_per_gene[gene_id]
-
-    # return number of levels --------------------------------------------------
-    def get_n_levels(self):
-        return self.number_of_taxonomic_levels
-
-    # return the root id -------------------------------------------------------
-    def get_root(self):
-        return self.tree_root
-
-    # find children of a node --------------------------------------------------
-    def find_children_node(self, node):
-        if node in self.child_nodes:
-            return list(self.child_nodes[node])
-        else:
-            return None
-    # return the last level to genes -------------------------------------------
-    def get_last_level_to_genes(self):
-        last_level_to_genes_temp = dict()
-        for i in self.last_level_to_genes:
-            last_level_to_genes_temp[i] = set(self.last_level_to_genes[i])
-        return last_level_to_genes_temp
-
-    # check if it is the last node before the genes ----------------------------
-    def is_last_node(self, node):
-        if node in self.last_level_to_genes:
-            return True
-        else:
-            return False
-    # find all genes under a given node ----------------------------------------
-    # return a list of all genes
-    def find_gene_ids(self, node):
-        all_leaves = list()
-        self.find_leaves_recoursive(node, all_leaves)
-        return all_leaves
-    def find_leaves_recoursive(self, node, all_leaves):
-        if node in self.last_level_to_genes:
-            all_leaves.extend(self.last_level_to_genes[node])
-        else:
-            for c in self.child_nodes[node]:
-                self.find_leaves_recoursive(c, all_leaves)
-
-    # function to remove nodes (and genes underneath), given a list of nodes ---
-    # it returns the gene ids that were removed
-    def remove_clades(self, node_list):
-        # remove all clades under
-        list_removed_genes = list()
-        for n in node_list:
-            self.remove_clade_iter(n, list_removed_genes)
-        # remove all clades on top
-        for n in node_list:
-            # now need to remove from the higher level in child_nodes
-            for i in self.child_nodes:
-                self.child_nodes[i].discard(n) # discard does not raise a KeyError.
-        # if it was the only child, then we should remove also at higher level
-        self.remove_unused_branches()
-        return list(list_removed_genes)
-
-    def remove_clade_iter(self, node, list_removed_genes):
-        if node in self.last_level_to_genes:
-            # we arrived at the end of the tree, we remove the genes, but first:
-            # add to the set of removed genes
-            list_removed_genes.extend(self.last_level_to_genes[node])
-            # remove the genes from the gene list
-            self.all_gene_ids = [e for e in self.all_gene_ids if e not in self.last_level_to_genes[node]]
-            # and, finally, remove the node from the last_level_to_genes dict
-            self.last_level_to_genes.pop(node,None)
-        else:
-            try:
-                for n in self.child_nodes[node]:
-                    self.remove_clade_iter(n, list_removed_genes)
-                # remove from child_nodes
-                self.child_nodes.pop(node,None)
-            except KeyError as e:
-                sys.stderr.write("WARNING: key not present when removing a clade ["+str(e)+"]\n\n")
-
-
-    def remove_unused_branches(self):
-        removed_any = False # this becomes True if we remove any node from
-                            # child_nodes, in which case we re-run remove_unused_branches
-        list_to_remove = list()
-        for i in self.child_nodes:
-            if len(self.child_nodes[i]) == 0:
-                removed_any = True
-                list_to_remove.append(i)
-                # remove from taxonomy at higher level
-                for j in self.child_nodes:
-                    self.child_nodes[j].discard(i)
-        # remove nodes that are empty from child_nodes
-        for n in list_to_remove:
-            self.child_nodes.pop(n,None)
-        # call remove_unused_branches again if necessary
-        if removed_any:
-            self.remove_unused_branches()
-
-    # function to remove genes from a list -------------------------------------
-    def remove_genes(self, gene_list):
-        # remove the genes from the gene list
-        self.all_gene_ids = [e for e in self.all_gene_ids if e not in gene_list]
-        # remove the genes from last_level_to_genes
-        for g in gene_list:
-            for node in self.last_level_to_genes:
-                self.last_level_to_genes[node].discard(g)
-        # Check if all the genes from one clade are removed, and hence we should
-        # remove that clade
-        list_to_remove = list()
-        for node in self.last_level_to_genes:
-            if len(self.last_level_to_genes[node]) == 0:
-                list_to_remove.append(node)
-        self.remove_clades(list_to_remove)
-
-    # function that returns all nodes at one level, ----------------------------
-    # as a dictionary of the parent nodes
-    def find_tax_level_iter(self, current_node, current_level, result):
-        if current_node in self.child_nodes:
-            for n in self.child_nodes[current_node]:
-                result[n] = current_level+1
-                self.find_tax_level_iter(n, current_level+1, result)
-    def find_node_level(self, tax_level_find):
-        # find tax level for each node
-        tax_level = dict()
-        tax_level[self.tree_root] = 0
-        self.find_tax_level_iter(self.tree_root,0,tax_level)
-        # select only the one from the correct level
-        res = dict()
-        for n in self.child_nodes:
-            if tax_level[n] == tax_level_find:
-                res[n] = set(self.child_nodes[n])
-        return res
-
-    # print the values in the taxonomy class -----------------------------------
-    def __str__(self):
-        to_print = "NODES:\n"
-        for i in self.child_nodes:
-            to_print = to_print + "   (N):" + i + ": " + str(self.child_nodes[i]) + "\n"
-        to_print = to_print + "\nGENES:\n"
-        for i in self.last_level_to_genes:
-            to_print = to_print + "   (G):" + i + ": " + str(self.last_level_to_genes[i]) + "\n"
-        to_print = to_print + "\nLIST GENES:\n" + str(self.all_gene_ids) + "\n"
-        to_print = to_print + "\nN LEVELS: " + str(self.number_of_taxonomic_levels) + "\n"
-        return to_print
-
-
-
+from stag.taxonomy import Taxonomy
 
 #===============================================================================
 #                   FUNCTIONS TO LOAD AND CHECK THE ALIGNMENT
@@ -279,7 +59,7 @@ def load_alignment_from_file(file_name):
     with open(file_name, "r") as f:
         for line in f.readlines():
             vals = line.rstrip().split("\t")
-            alignment.iloc[pos]= np.array([ False if x == "0" else True for x in vals[1:]])
+            alignment.iloc[pos]= np.array([int(x) == 1 for x in vals[1:]])
             pos = pos + 1
 
     logging.info('   LOAD_AL: Number of genes: %s', str(len(list(alignment.index.values))))
@@ -328,23 +108,16 @@ def check_taxonomy_alignment_consistency(alignment, full_taxonomy):
         logging.info(' Error: even after correction, the genes in the taxonomy and the alignment do not agree.')
         sys.exit(1)
 
-
-
-
-
-
-
-
 #===============================================================================
 #                   FUNCTIONS TO TRAIN THE CLASSIFIERS
 #===============================================================================
 
 # function that finds positive and negative examples ===========================
-def find_training_genes(node, sibilings, full_taxonomy, alignment):
+def find_training_genes(node, siblings, full_taxonomy, alignment):
     positive_examples = full_taxonomy.find_gene_ids(node)
     negative_examples = list()
-    if len(sibilings) > 0:
-        for s in sibilings:
+    if len(siblings) > 0:
+        for s in siblings:
             negative_examples = negative_examples + full_taxonomy.find_gene_ids(s)
     # "positive_examples" and "negative_examples" are list of gene ids
 
@@ -367,7 +140,7 @@ def find_training_genes(node, sibilings, full_taxonomy, alignment):
         negative_examples_subsample = random.sample(negative_examples_subsample, len(positive_examples_subsample)*20)
     # 4. we want to have at least 5 times more negative than positive ----------
     missing_neg = 0 # how many negative sequences we need to add
-    if len(sibilings) == 1:
+    if len(siblings) == 1:
         # if there is only one other sibiling, we choose only 3 times more negative
         if len(negative_examples_subsample) > len(positive_examples_subsample)*3:
             negative_examples_subsample = random.sample(negative_examples_subsample, len(positive_examples_subsample)*3)
@@ -439,77 +212,117 @@ def find_training_genes(node, sibilings, full_taxonomy, alignment):
             for i in to_add:
                 negative_examples_subsample.append(possible_neg[i])
 
-
-
     return positive_examples_subsample, negative_examples_subsample
 
-# function that train the classifier for one node ==============================
-def train_classifier(positive_examples,negative_examples,all_classifiers,alignment, node, penalty_v, solver_v):
-    # check that we have at least 1 example for each class:
-    if len(negative_examples) == 0:
-        # when the node is the only child, then there are no negative examples
-        logging.info('      Warning: no negative examples for "%s', node)
-        return "no_negative_examples"
-    if len(positive_examples) == 0:
-        # There should be positive examples
-        logging.info('      Error: no positive examples for "%s', node)
-        return "ERROR_no_positive_examples"
 
-    # select the genes from the pandas dataframe
-    X = alignment.loc[ negative_examples + positive_examples , : ].to_numpy()
-    train_labels = ["no"]*len(negative_examples)+["yes"]*len(positive_examples)
-    # NOTE: we put first the negative class (0) because then the classifier will
-    #       use this order. And when we will use only the coefficients, it will
-    #       give the probability prediction of the secodn class
+def train_all_classifiers(alignment, taxonomy, penalty_v, solver_v, procs=2):
+    import multiprocessing as mp
+    pool = mp.Pool(processes=procs)
 
-    y = np.asarray(train_labels)
-    # train classifier
+    results = (pool.apply_async(train_classifier, args=(X, y, penalty_v, solver_v, node,))
+               for node, siblings, (X, y) in get_training_genes(taxonomy, alignment))
+
+    return dict(p.get() for p in results)
+
+def train_classifier(X, y, penalty_v, solver_v, node):
+    if y is None:
+        return node, X
     clf = LogisticRegression(random_state=0, penalty = penalty_v, solver=solver_v)
     clf.fit(X, y)
-    return clf
+    return node, clf
+
+def get_training_genes(taxonomy, alignment):
+    for node, siblings in taxonomy.get_all_nodes():
+        logging.info('   TRAIN:"{}":Find genes'.format(node))
+        positive_examples, negative_examples = find_training_genes(node, siblings, taxonomy, alignment)
+        logging.info('      SEL_GENES:"{}": {} positive, {} negative'.format(
+            node, len(positive_examples), len(negative_examples)
+        ))
+        yield node, siblings, prep_train_classifier(positive_examples, negative_examples, alignment, node)
+
+def prep_train_classifier(positives, negatives, alignment, node):
+    if not negatives:
+        logging.info('      Warning: no negative examples for "%s', node)
+        return "no_negative_examples", None
+    if not positives:
+        logging.info('      Error: no positive examples for "%s', node)
+        return "ERROR_no_positive_examples", None
+
+    X = alignment.loc[ negatives + positives, : ].to_numpy()
+    y = np.asarray(
+        ["no" for i in range(len(negatives))] + ["yes" for i in range(len(positives))]
+    )
+    return X, y
 
 
-# train node and call the same function on all the children ====================
-def train_node_iteratively(node, sibilings, all_classifiers, alignment, full_taxonomy, penalty_v, solver_v):
-    # call the function on all the children
-    # but only if they are not the last level
-    if not(full_taxonomy.is_last_node(node)):
-        children_of_node = full_taxonomy.find_children_node(node)
-        for child in children_of_node:
-            sibilings_child = list(children_of_node)
-            sibilings_child.remove(child)
-            train_node_iteratively(child, sibilings_child, all_classifiers, alignment, full_taxonomy, penalty_v, solver_v)
-
-    # find genomes to use and to which class they belong to,
-    # we need positive and negative examples
-    logging.info('   TRAIN:"%s":Find genes', node)
-    positive_examples, negative_examples = find_training_genes(node, sibilings, full_taxonomy, alignment)
-    logging.info('      SEL_GENES:"%s": %s positive, %s negative', node,
-                 str(len(positive_examples)),str(len(negative_examples)))
-
-    # train the classifier
-    logging.info('         TRAIN:"%s":Train classifier', node)
-    all_classifiers[node] = train_classifier(positive_examples,negative_examples,
-                                             all_classifiers, alignment, node, penalty_v, solver_v)
 
 
-# function to train all classifiers ============================================
-# this function will create a classifier for each node in the taxonomy
-# Input:
-#  - the aligned sequences as a pandas data frame
-#  - the taxonomy (global variable)
-# Output:
-#  - a dictionary, where the keys are the node names and the values are a lasso
-#                  classifier object
-def train_all_classifiers(alignment, full_taxonomy, penalty_v, solver_v):
-    all_classifiers = dict()
-    children_of_root = full_taxonomy.find_children_node(full_taxonomy.get_root())
-    for node in children_of_root:
-        sibilings = list(children_of_root)
-        sibilings.remove(node)
-        train_node_iteratively(node, sibilings, all_classifiers, alignment, full_taxonomy, penalty_v, solver_v)
-    return(all_classifiers)
+## function that train the classifier for one node ==============================
+#def train_classifier(positive_examples,negative_examples,all_classifiers,alignment, node, penalty_v, solver_v):
+#    # check that we have at least 1 example for each class:
+#    if len(negative_examples) == 0:
+#        # when the node is the only child, then there are no negative examples
+#        logging.info('      Warning: no negative examples for "%s', node)
+#        return "no_negative_examples"
+#    if len(positive_examples) == 0:
+#        # There should be positive examples
+#        logging.info('      Error: no positive examples for "%s', node)
+#        return "ERROR_no_positive_examples"
+#
+#    # select the genes from the pandas dataframe
+#    X = alignment.loc[ negative_examples + positive_examples , : ].to_numpy()
+#    train_labels = ["no"]*len(negative_examples)+["yes"]*len(positive_examples)
+#    # NOTE: we put first the negative class (0) because then the classifier will
+#    #       use this order. And when we will use only the coefficients, it will
+#    #       give the probability prediction of the secodn class
+#
+#    y = np.asarray(train_labels)
+#    # train classifier
+#    clf = LogisticRegression(random_state=0, penalty = penalty_v, solver=solver_v)
+#    clf.fit(X, y)
+#    return clf
+#
+## train node and call the same function on all the children ====================
+#def train_node_iteratively(node, siblings, all_classifiers, alignment, full_taxonomy, penalty_v, solver_v):
+#    # call the function on all the children
+#    # but only if they are not the last level
+#    if not(full_taxonomy.is_last_node(node)):
+#        children_of_node = full_taxonomy.find_children_node(node)
+#        for child in children_of_node:
+#            siblings_child = list(children_of_node)
+#            siblings_child.remove(child)
+#            train_node_iteratively(child, siblings_child, all_classifiers, alignment, full_taxonomy, penalty_v, solver_v)
+#
+#    # find genomes to use and to which class they belong to,
+#    # we need positive and negative examples
+#    logging.info('   TRAIN:"%s":Find genes', node)
+#    positive_examples, negative_examples = find_training_genes(node, siblings, full_taxonomy, alignment)
+#    logging.info('      SEL_GENES:"%s": %s positive, %s negative', node,
+#                 str(len(positive_examples)),str(len(negative_examples)))
+#
+#    # train the classifier
+#    logging.info('         TRAIN:"%s":Train classifier', node)
+#    all_classifiers[node] = train_classifier(positive_examples,negative_examples,
+#                                             all_classifiers, alignment, node, penalty_v, solver_v)
 
+
+## function to train all classifiers ============================================
+## this function will create a classifier for each node in the taxonomy
+## Input:
+##  - the aligned sequences as a pandas data frame
+##  - the taxonomy (global variable)
+## Output:
+##  - a dictionary, where the keys are the node names and the values are a lasso
+##                  classifier object
+#def train_all_classifiers(alignment, full_taxonomy, penalty_v, solver_v):
+#    all_classifiers = dict()
+#    children_of_root = full_taxonomy.find_children_node(full_taxonomy.get_root())
+#    for node in children_of_root:
+#        siblings = list(children_of_root)
+#        siblings.remove(node)
+#        train_node_iteratively(node, siblings, all_classifiers, alignment, full_taxonomy, penalty_v, solver_v)
+#    return(all_classifiers)
+#
 
 
 
@@ -528,7 +341,7 @@ def predict_iter(test_seq, training_tax, classifiers_train, tax, perc, arrived_s
     max_perc_taxa = ""
     # if there is only one child:
     if len(training_tax.find_children_node(arrived_so_far)) == 1:
-        max_perc = 2 # if there are no sibilings I put 2, it will be replaced after
+        max_perc = 2 # if there are no siblings I put 2, it will be replaced after
         max_perc_taxa = training_tax.find_children_node(arrived_so_far)[0]
     # if there are no children
     if len(training_tax.find_children_node(arrived_so_far)) < 1:
@@ -577,7 +390,7 @@ def predict(test_al, training_tax, classifiers_train):
         res.append(r)
     return(res)
 
-def learn_function_one_level(level_to_learn, alignment, full_taxonomy, penalty_v, solver_v):
+def learn_function_one_level(level_to_learn, alignment, full_taxonomy, penalty_v, solver_v, procs=2):
     logging.info('  TEST:"%s" taxonomic level', str(level_to_learn))
     # 1. Identify which clades we want to remove (test set) and which to keep
     #    (training set)
@@ -604,7 +417,7 @@ def learn_function_one_level(level_to_learn, alignment, full_taxonomy, penalty_v
     training_tax = full_taxonomy.copy()
     removed_genes = training_tax.remove_clades(list(test_set))
     training_al = alignment.loc[ training_tax.find_gene_ids(training_tax.get_root()) , : ]
-    classifiers_train = train_all_classifiers(training_al, training_tax, penalty_v, solver_v)
+    classifiers_train = train_all_classifiers(training_al, training_tax, penalty_v, solver_v, procs=procs)
 
     # 3. Classify the test set
     test_al = alignment.loc[ removed_genes , : ]
@@ -623,7 +436,7 @@ def learn_function_one_level(level_to_learn, alignment, full_taxonomy, penalty_v
     #  ["geneB",["A","B","D","species8"],[0.99,0.96,0.10,0.07],["A","B","U","speciesZ"],2]
     # .....                                                                               ]
 
-def learn_function_genes_level(level_to_learn, alignment, full_taxonomy, penalty_v, solver_v):
+def learn_function_genes_level(level_to_learn, alignment, full_taxonomy, penalty_v, solver_v, procs=2):
     logging.info('  TEST:"%s" taxonomic level', str(level_to_learn))
     # 1. Identify which clades we want to remove (test set) and which to keep
     #    (training set)
@@ -648,7 +461,7 @@ def learn_function_genes_level(level_to_learn, alignment, full_taxonomy, penalty
     training_tax = full_taxonomy.copy()
     training_tax.remove_genes(list(test_set))
     training_al = alignment.loc[ training_set , : ]
-    classifiers_train = train_all_classifiers(training_al, training_tax, penalty_v, solver_v)
+    classifiers_train = train_all_classifiers(training_al, training_tax, penalty_v, solver_v, procs=procs)
 
     # 3. Classify the test set
     test_al = alignment.loc[ test_set , : ]
@@ -856,7 +669,7 @@ def save_to_file(classifiers, full_taxonomy, tax_function, use_cmalign, hmm_file
 #                                      MAIN
 #===============================================================================
 
-def create_db(aligned_seq_file, tax_file, verbose, output, use_cmalign, hmm_file_path, save_cross_val_data, tool_version, protein_fasta_input, penalty_v, solver_v):
+def create_db(aligned_seq_file, tax_file, verbose, output, use_cmalign, hmm_file_path, save_cross_val_data, tool_version, protein_fasta_input, penalty_v, solver_v, procs=2):
     # set log file
     filename_log = os.path.realpath(output)+'.log'
     logging.basicConfig(filename=filename_log,
@@ -883,7 +696,7 @@ def create_db(aligned_seq_file, tax_file, verbose, output, use_cmalign, hmm_file
 
     # 4. build a classifier for each node
     logging.info('MAIN:Train all classifiers')
-    classifiers = train_all_classifiers(alignment, full_taxonomy, penalty_v, solver_v)
+    classifiers = train_all_classifiers(alignment, full_taxonomy, penalty_v, solver_v, procs=procs)
     logging.info('TIME:Finish train all classifiers')
 
     # 5. learn the function to identify the correct taxonomy level
