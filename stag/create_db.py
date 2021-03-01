@@ -59,7 +59,7 @@ def load_alignment_from_file(file_name):
     with open(file_name, "r") as f:
         for line in f.readlines():
             vals = line.rstrip().split("\t")
-            alignment.iloc[pos]= np.array([int(x) == 1 for x in vals[1:]])
+            alignment.iloc[pos]= np.array([int(x) != 0 for x in vals[1:]])
             pos = pos + 1
 
     logging.info('   LOAD_AL: Number of genes: %s', str(len(list(alignment.index.values))))
