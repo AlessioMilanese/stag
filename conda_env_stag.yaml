@@ -1,11 +1,11 @@
-name: stag
+name: stag_main_mp
 channels:
   - bioconda
   - defaults
   - conda-forge
   - intel
 dependencies:
-  - python=3.6
+  - python>=3.7
   - hmmer
   - infernal
   - easel
