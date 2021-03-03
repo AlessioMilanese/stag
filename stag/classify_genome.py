@@ -430,7 +430,7 @@ def annotate_MGs(MGS, database_files, database_base_path, dir_ali):
                 # it means that we align proteins
                 CMD = CMD + " -p "+MGS[mg][1]
             # save intermediate alignment
-            CMD = CMD + " -S " + dir_ali + mg
+            CMD = CMD + " -S " + os.path.join(dir_ali, mg)
             # we run stag CMD
             split_CMD = shlex.split(CMD)
             stag_CMD = subprocess.Popen(split_CMD, stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -477,16 +477,18 @@ def merge_gene_predictions(genome_files, mgs_list, all_classifications, verbose,
     for marker_gene, lineage in all_classifications.items():
         genome, mg_id = marker_gene.rstrip().split("##")
         sep = "_" if "_" in genome else "."
-        genome = sep.join(genome.split(sep)[:-1])
+        genome = genome.split(sep)
+        genome = sep.join(genome[:-1] if len(genome) > 1 else genome)
         merged_predictions.setdefault(genome, list()).append("\t".join([marker_gene.rstrip(), mg_id, lineage]))
     print(*merged_predictions.items(), sep="\n")
 
     for genome in genome_files:
+        print(genome, full_genomes)
         if not full_genomes:
             genome = os.path.basename(genome).replace(".markers.json", "")
         genome_filename = os.path.basename(genome)
         with open(os.path.join(outdir, genome_filename), "w") as merged_out:
-            print(*merged_predictions.get(genome, list()), file=merged_out, flush=True)
+            print(*merged_predictions.get(genome, list()), sep="\n", file=merged_out, flush=True)
 
 # ==============================================================================
 # CONCAT ALIGNEMENTS
@@ -506,7 +508,8 @@ def concat_alignments(genome_files, ali_dir, gene_order, ali_lengths, full_genom
             genome = os.path.basename(genome).replace(".markers.json", "")
         for mg in gene_order:
             all_genes.setdefault(genome, list()).append("\t".join(['0'] * int(ali_lengths[mg])))
-    print("XXX", *all_genes.items(), sep="\n")
+    print(genome_files)
+    print("XXX", *all_genes.keys(), sep="\n")
     print(gene_order)
     print(ali_lengths)
     #for ge in genomes_file_list:
@@ -517,13 +520,22 @@ def concat_alignments(genome_files, ali_dir, gene_order, ali_lengths, full_genom
     # we add the alignments from the real genes
     for pos, mg in enumerate(gene_order):
         mg_alignment_file = os.path.join(ali_dir, mg)
-        if os.path.isfile(mg_alignment_file):
+        if os.path.exists(mg_alignment_file):
             with open(mg_alignment_file) as align_in:
                 for line in align_in:
                     genome, *alignment = line.strip().split("\t")
                     sep = "_" if "_" in genome else "."
-                    genome = sep.join(genome.split(sep)[:-1])
+                    genome = genome.split("##")[0].split(sep)
+                    #genome = genome.split(sep)
+                    genome = sep.join(genome[:-1] if len(genome) > 1 else genome) 
                     all_genes[genome][pos] = "\t".join(alignment)
+                    #all_genes[genome][pos] = .setdefault(genome, list()).extend(alignment) #append([pos] = "\t".join(alignment)
+        #else:
+        #    all_genes.setdefault(genome, list()).extend("0" for i in range(int(ali_lengths[mg]))) #append("\t".join(['0'] * int(ali_lengths[mg])))
+    #print("YYY", *all_genes.keys(), sep="\n")
+    print("YYY")
+    for key, value in all_genes.items():
+        print(key, len(value))
 
     # we create a temp file and save the sequences
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as concat_ali_f:
@@ -563,6 +575,7 @@ def classify_genome(database, genome_files=None, marker_genes=None, verbose=None
     if verbose > 2:
         sys.stderr.write("Unzip the database\n")
     database_files, temp_dir, gene_thresholds, gene_order, ali_lengths, concat_ali_stag_db = load_genome_DB(database, tool_version, verbose)
+    genomes_pred = dict()
 
     if marker_genes:
         MGS = json.load(open(marker_genes[0]))
@@ -608,24 +621,23 @@ def classify_genome(database, genome_files=None, marker_genes=None, verbose=None
                 if os.path.isfile(genomes_pred[i][1]): os.remove(genomes_pred[i][1])
             sys.exit(1)
 
+    copy_function = shutil.move if genome_files else os.link
     # we save in the outdir the file with the MG sequences
     os.mkdir(output+"/MG_sequences")
     for m in MGS:
         try:
             if MGS[m][0] is None:
-                o = open(output+"/MG_sequences/"+m+".fna","w")
-                o.close()
+                open(output+"/MG_sequences/"+m+".fna","w").close()
             else:
-                os.link(MGS[m][0], output+"/MG_sequences/"+m+".fna")
+                copy_function(os.path.abspath(MGS[m][0]), output+"/MG_sequences/"+m+".fna")
                 #shutil.move(MGS[m][0],output+"/MG_sequences/"+m+".fna")
-                MGS[m][0] = output+"/MG_sequences/"+m+".fna"
+                MGS[m][0] = os.path.abspath(output+"/MG_sequences/"+m+".fna")
             if MGS[m][1] is None:
-                o = open(output+"/MG_sequences/"+m+".faa","w")
-                o.close()
+                open(output+"/MG_sequences/"+m+".faa","w").close()
             else:
-                os.link(MGS[m][1], output+"/MG_sequences/"+m+".faa")
+                copy_function(os.path.abspath(MGS[m][1]), output+"/MG_sequences/"+m+".faa")
                 #shutil.move(MGS[m][1],output+"/MG_sequences/"+m+".faa")
-                MGS[m][1] = output+"/MG_sequences/"+m+".faa"
+                MGS[m][1] = os.path.abspath(output+"/MG_sequences/"+m+".faa")
         except Exception as e:
             sys.stderr.write("[E::main] Error: failed to save the marker gene sequences\n")
             sys.stderr.write(str(e)+"\n")
@@ -662,20 +674,23 @@ def classify_genome(database, genome_files=None, marker_genes=None, verbose=None
         sys.stderr.write("Taxonomically annotate genomes\n")
     # First, create a concatenated alignment. The alignments were created in the
     # 4th step
-    file_ali = concat_alignments(input_files, align_dir, gene_order, ali_lengths, full_genomes=True)
+    file_ali = concat_alignments(input_files, align_dir, gene_order, ali_lengths, full_genomes=bool(genome_files))
 
     # Second, classify the alignments
     annotate_concat_mgs(concat_ali_stag_db, file_ali, output)
 
     # we remove the file with the concatenated alignment
-    os.remove(file_ali)
+    print(file_ali)
+    #os.remove(file_ali)
 
     # we remove the temp dir ---------------------------------------------------
     shutil.rmtree(temp_dir)
     # and the result from prodigal
-    for i in genomes_pred:
-        if os.path.isfile(genomes_pred[i][0]): os.remove(genomes_pred[i][0])
-        if os.path.isfile(genomes_pred[i][1]): os.remove(genomes_pred[i][1])
+    for genome in genomes_pred:
+        if os.path.isfile(genomes_pred[genome][0]):
+            os.remove(genomes_pred[genome][0])
+        if os.path.isfile(genomes_pred[genome][1]):
+            os.remove(genomes_pred[genome][1])
     # and the file with the marker genes
     # for m in MGS:
     #    if MGS[m][0] != None:
