@@ -456,13 +456,6 @@ def annotate_MGs(MGS, database_files, database_base_path, dir_ali):
 
     return all_classifications
 
-#('', 'metaMG0000001.COG0541##TIGR00959\tTIGR00959\td__Bacteria;p__Actinobacteriota;c__Actinomycetia;o__Actinomycetales;f__Actinomycetaceae;g__Actinomyces\nmetaMG0000001.COG0016##TIGR00468\tTIGR00468\td__Bacteria;p__Spirochaetota\nmetaMG0000001.COG0215##TIGR00435\tTIGR00435\td__Bacteria\nmetaMG0000001.COG0018##TIGR00456\tTIGR00456\td__Bacteria;p__Bdellovibrionota;c__Bdellovibrionia;o__Bdellovibrionales\nmetaMG0000001.COG0552##TIGR00064\tTIGR00064\td__Bacteria;p__Desulfobacterota;c__Desulfovibrionia;o__Desulfovibrionales;f__Desulfovibrionaceae;g__Desulfovibrio\nmetaMG0000001.COG0495##TIGR00396\tTIGR00396\td__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Flavobacteriales;f__Flavobacteriaceae;g__Capnocytophaga\nmetaMG0000001.COG0172##TIGR00414\tTIGR00414\td__Bacteria;p__Planctomycetota\nmetaMG0000001.COG0012##TIGR00092\tTIGR00092\td__Bacteria;p__Firmicutes_A;c__Clostridia_A;o__Christensenellales;f__CAG-314;g__CAG-1435\nmetaMG0000001.COG0533##TIGR03723\tTIGR03723\td__Bacteria;p__Firmicutes_A;c__Clostridia;o__Oscillospirales;f__Ruminococcaceae;g__Faecalibacterium;s__Faecalibacterium prausnitzii_D\n')
-
-#('metaMG0000001.COG0541##TIGR00959', 'd__Bacteria;p__Actinobacteriota;c__Actinomycetia;o__Actinomycetales;f__Actinomycetaceae;g__Actinomyces')
-#**********
-#('', 'metaMG0000001.COG0541##TIGR00959\tTIGR00959\td__Bacteria;p__Actinobacteriota;c__Actinomycetia;o__Actinomycetales;f__Actinomycetaceae;g__Actinomyces\n')
-#'/Users/alex/Dropbox/genomeA_356##COG0012'
-
 # ==============================================================================
 # MERGE TAXONOMY OF SINGLE GENES
 # ==============================================================================
@@ -526,12 +519,8 @@ def concat_alignments(genome_files, ali_dir, gene_order, ali_lengths, full_genom
                     genome, *alignment = line.strip().split("\t")
                     sep = "_" if "_" in genome else "."
                     genome = genome.split("##")[0].split(sep)
-                    #genome = genome.split(sep)
                     genome = sep.join(genome[:-1] if len(genome) > 1 else genome) 
                     all_genes[genome][pos] = "\t".join(alignment)
-                    #all_genes[genome][pos] = .setdefault(genome, list()).extend(alignment) #append([pos] = "\t".join(alignment)
-        #else:
-        #    all_genes.setdefault(genome, list()).extend("0" for i in range(int(ali_lengths[mg]))) #append("\t".join(['0'] * int(ali_lengths[mg])))
     #print("YYY", *all_genes.keys(), sep="\n")
     print("YYY")
     for key, value in all_genes.items():
