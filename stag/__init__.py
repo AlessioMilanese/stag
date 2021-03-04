@@ -1,4 +1,4 @@
-__version__ = "0.7.1_main_mp"
+__version__ = "0.7.1_backward_merge"
 __title__ = "stag"
 __author__ = "Alessio Milanese"
 __license__ = 'GPLv3+'

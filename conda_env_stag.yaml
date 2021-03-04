@@ -1,4 +1,4 @@
-name: stag_main_mp
+name: stag_backward_merge
 channels:
   - bioconda
   - defaults
