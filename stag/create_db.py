@@ -50,16 +50,20 @@ def find_raw_names_ncol(file_name):
 def load_alignment_from_file(file_name):
     # create empty pandas object of the correct size
     gene_names, ncol = find_raw_names_ncol(file_name)
-    alignment = pd.DataFrame(index = gene_names, columns = range(ncol-1))
-    # add correct values
-    with open(file_name, "r") as f:
-        for pos, line in enumerate(f):
-            vals = line.rstrip().split("\t")
-            alignment.iloc[pos] = np.array([x == "1" for x in vals[1:]])
+    alignment = pd.DataFrame(False, index=gene_names, columns=range(ncol - 1))
+
+    with open(file_name) as align_in:
+        for row, line in enumerate(align_in):
+            seqid, *aligned_seq = line.rstrip().split("\t")
+            try:
+                alignment.iloc[row] = np.array([int(x) != 1 for x in aligned_seq])
+            except ValueError:
+                invalid = [(col, x) for col, x in enumerate(aligned_seq, start=1) if x not in ("0", "1")]
+                raise ValueError(f"Encountered {len(invalid)} invalid value(s) during alignment loading.:\n " + \
+                    f"first invalid entry: row={row} ({seqid}) col={invalid[0][0]} value={invalid[0][1]}\n" + \
+                    f"Please check your alignment matrix for non-numeric entries.")
 
     logging.info('   LOAD_AL: Number of genes: %s', str(len(list(alignment.index.values))))
-
-    # we remove duplicates
     alignment = alignment.drop_duplicates()
     logging.info('   LOAD_AL: Number of genes, after removing duplicates: %s', str(len(list(alignment.index.values))))
     return alignment
@@ -102,7 +106,6 @@ def check_taxonomy_alignment_consistency(alignment, full_taxonomy):
         sys.stderr.write("Error: even after correction, the genes in the taxonomy and the alignment do not agree\n")
         logging.info(' Error: even after correction, the genes in the taxonomy and the alignment do not agree.')
         sys.exit(1)
-
 
 #===============================================================================
 #                   FUNCTIONS TO TRAIN THE CLASSIFIERS
@@ -210,30 +213,21 @@ def find_training_genes(node, siblings, full_taxonomy, alignment):
 
     return positive_examples_subsample, negative_examples_subsample
 
-# function that train the classifier for one node ==============================
-def train_classifier(positive_examples,negative_examples,alignment, node, penalty_v, solver_v):
-    # check that we have at least 1 example for each class:
-    if len(negative_examples) == 0:
-        # when the node is the only child, then there are no negative examples
-        logging.info('      Warning: no negative examples for "%s', node)
-        return "no_negative_examples"
-    if len(positive_examples) == 0:
-        # There should be positive examples
-        logging.info('      Error: no positive examples for "%s', node)
-        return "ERROR_no_positive_examples"
+def train_all_classifiers(alignment, taxonomy, penalty_v, solver_v, procs=2):
+    import multiprocessing as mp
+    pool = mp.Pool(processes=procs)
 
-    # select the genes from the pandas dataframe
-    X = alignment.loc[ negative_examples + positive_examples , : ].to_numpy()
-    train_labels = ["no"]*len(negative_examples)+["yes"]*len(positive_examples)
-    # NOTE: we put first the negative class (0) because then the classifier will
-    #       use this order. And when we will use only the coefficients, it will
-    #       give the probability prediction of the secodn class
+    results = (pool.apply_async(train_classifier, args=(X, y, penalty_v, solver_v, node,))
+               for node, siblings, (X, y) in get_training_genes(taxonomy, alignment))
 
-    y = np.asarray(train_labels)
-    # train classifier
+    return dict(p.get() for p in results)
+
+def train_classifier(X, y, penalty_v, solver_v, node):
+    if y is None:
+        return node, X
     clf = LogisticRegression(random_state=0, penalty = penalty_v, solver=solver_v)
     clf.fit(X, y)
-    return clf
+    return node, clf
 
 def prep_train_classifier(positives, negatives, alignment, node):
     if not negatives:
@@ -249,88 +243,14 @@ def prep_train_classifier(positives, negatives, alignment, node):
     )
     return X, y
 
-def get_all_nodes(taxonomy):
-    nodes = set(taxonomy.find_children_node(taxonomy.get_root()))
-    queue = [(n, nodes.difference({n})) for n in nodes]
-    while queue:
-        node, siblings = queue.pop(0)
-        if not taxonomy.is_last_node(node):
-            children = set(taxonomy.find_children_node(node))
-            queue.extend((child, children.difference({child})) for child in children)
-        yield node, siblings
-
-def train_node(node, siblings, alignment, taxonomy, penalty_v, solver_v):
-    logging.info('   TRAIN:"{}":Find genes'.format(node))
-    positive_examples, negative_examples = find_training_genes(node, siblings, taxonomy, alignment)
-    logging.info('      SEL_GENES:"{}": {} positive, {} negative'.format(
-        node, len(positive_examples), len(negative_examples)
-    ))
-    logging.info('         TRAIN:"{}":Train classifier'.format(node))
-    return node, train_classifier(positive_examples, negative_examples, alignment, node, penalty_v, solver_v)
-
-def find_training_genes_gen(node_stream, taxonomy, alignment):
-    for node, siblings in node_stream:
+def get_training_genes(taxonomy, alignment):
+    for node, siblings in taxonomy.get_all_nodes():
         logging.info('   TRAIN:"{}":Find genes'.format(node))
         positive_examples, negative_examples = find_training_genes(node, siblings, taxonomy, alignment)
         logging.info('      SEL_GENES:"{}": {} positive, {} negative'.format(
             node, len(positive_examples), len(negative_examples)
         ))
         yield node, siblings, prep_train_classifier(positive_examples, negative_examples, alignment, node)
-
-def train_classifier_short(X, y, penalty_v, solver_v, node):
-    if y is None:
-        return node, X
-    clf = LogisticRegression(random_state=0, penalty = penalty_v, solver=solver_v)
-    clf.fit(X, y)
-    return node, clf
-
-def train_all_classifiers(alignment, taxonomy, penalty_v, solver_v, procs=2):
-    import multiprocessing as mp
-    pool = mp.Pool(processes=procs)
-
-
-
-
-
-
-
-
-    results = (
-        pool.apply_async(train_classifier_short, args=(X, y, penalty_v, solver_v, node,))
-        for node, siblings, (X, y) in find_training_genes_gen(get_all_nodes(taxonomy), taxonomy, alignment)
-    )
-
-    #results = [
-    #    pool.apply_async(train_node, args=(node, siblings, alignment, taxonomy, penalty_v, solver_v,))
-    #    for node, siblings in get_all_nodes(taxonomy)
-    #]
-
-    return dict(p.get() for p in results)
-
-
-def train_all_classifiers_without_mp(alignment, taxonomy, penalty_v, solver_v):
-    all_classifiers = dict()
-    nodes = set(taxonomy.find_children_node(taxonomy.get_root()))
-    queue = [(n, nodes.difference({n})) for n in nodes]
-    while queue:
-        node, siblings = queue.pop(0)
-        if not taxonomy.is_last_node(node):
-            children = set(taxonomy.find_children_node(node))
-            queue.extend((child, children.difference({child})) for child in children)
-
-        logging.info('   TRAIN:"{}":Find genes'.format(node))
-        positive_examples, negative_examples = find_training_genes(node, siblings, taxonomy, alignment)
-        logging.info('      SEL_GENES:"{}": {} positive, {} negative'.format(
-            node, len(positive_examples), len(negative_examples)
-        ))
-        logging.info('         TRAIN:"{}":Train classifier'.format(node))
-        all_classifiers[node] = train_classifier(
-            positive_examples, negative_examples,
-            alignment, node, penalty_v, solver_v
-        )
-
-    return all_classifiers
-
 
 #===============================================================================
 #              FUNCTIONS TO LEARN THE FUNCTION FOR THE TAX. LEVEL
