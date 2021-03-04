@@ -10,7 +10,6 @@ import glob
 import tempfile
 import errno
 import tarfile
-import json
 import pathlib
 
 from . import __version__ as tool_version
@@ -544,7 +543,7 @@ def main(argv=None):
             check_file_exists(args.fasta_input, isfasta = True)
             list_files.append(args.fasta_input)
         elif args.marker_genes:
-            marker_genes = [args.marker_genes] #json.load(open(args.marker_genes))
+            marker_genes = [args.marker_genes]
         else:
             for f in os.listdir(args.dir_input):
                 f = os.path.join(args.dir_input, f)
