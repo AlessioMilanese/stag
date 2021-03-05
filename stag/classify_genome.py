@@ -115,7 +115,7 @@ def extract_gene_from_one_genome(file_to_align, hmm_file, gene_threshold,mg_name
         all_stderr = all_stderr + line
     return_code = hmm_CMD.wait()
     if return_code:
-		raise ValueError(f"[E::align] Error. hmmsearch failed\n\nMG: {mg_name}\nCALL: {hmm_cmd}\n\n{all_stderr}")
+        raise ValueError(f"[E::align] Error. hmmsearch failed\n\nMG: {mg_name}\nCALL: {hmm_cmd}\n\n{all_stderr}")
 
     # in temp_hmm.name there is the result from hmm ----------------------------
     # we select which genes/proteins we need to extract from the fasta files
@@ -315,49 +315,11 @@ def fetch_MGs(database_files, database_path, genomes_pred, keep_all_genes, gene_
 
 def annotate_MGs(MGS, database_files, database_base_path, dir_ali):
     all_classifications = dict()
-<<<<<<< HEAD
     for mg, (fna, faa) in MGS.items():
         if fna:
             db = os.path.join(database_base_path, mg)
             if not os.path.isfile(db):
-                sys.stderr.write("Error: file for gene database {} is missing".format(db))
-=======
-    for mg in MGS:
-        if MGS[mg][0] != None:
-            # it means that there are some genes to classify
-            CMD = "stag classify -d "+database_base_path+"/"+mg
-            # check that the database is correct
-            if not os.path.isfile(database_base_path+"/"+mg):
-                sys.stderr.write("Error: file for gene database is missing")
-            CMD = CMD + " -i "+MGS[mg][0]
-            if MGS[mg][1] != "no_protein":
-                # it means that we align proteins
-                CMD = CMD + " -p "+MGS[mg][1]
-            # save intermediate alignment
-            CMD = CMD + " -S " + os.path.join(dir_ali, mg)
-            # we run stag CMD
-            split_CMD = shlex.split(CMD)
-            stag_CMD = subprocess.Popen(split_CMD, stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            # save stderr for the message is necessary
-            all_stderr = ""
-            for line in stag_CMD.stderr:
-                line = line.decode('ascii')
-                all_stderr = all_stderr + line
-            # save stdout with the resutls
-            n_genes = -1
-            for line in stag_CMD.stdout:
-                n_genes = n_genes + 1
-                if n_genes != 0:
-                    # we skip the header
-                    vals = line.decode('ascii').split("\t")
-                    all_classifications[vals[0]] = vals[1].rstrip()
-            # check errors
-            return_code = stag_CMD.wait()
-            if return_code:
-                sys.stderr.write("[E::align] Error. stag classify failed\n\n")
-                sys.stderr.write(all_stderr)
->>>>>>> feature/create_db_mp_20200301
-                sys.exit(1)
+                raise ValueError("Error: file for gene database {} is missing".format(db))
             # faa = faa if faa != "no_protein" else None
             align_out = os.path.join(dir_ali, mg)
             print(fna, faa, align_out, db, sep="\n")
@@ -464,6 +426,7 @@ def classify_genome(database, genome_files=None, marker_genes=None, verbose=None
         sys.stderr.write("Unzip the database\n")
     database_files, temp_dir, gene_thresholds, gene_order, ali_lengths, concat_ali_stag_db = load_genome_DB(database, tool_version, verbose)
     genomes_pred = dict()
+    print(*ali_lengths.items(), sep="\n")
 
     if marker_genes:
         MGS = json.load(open(marker_genes[0]))
@@ -471,7 +434,7 @@ def classify_genome(database, genome_files=None, marker_genes=None, verbose=None
         # SECOND: run prodigal on the fasta genome ---------------------------------
         if verbose > 2:
             sys.stderr.write("Run prodigal\n")
-        genomes_pred = run_prodigal_genomes(genome_files, verbose)
+        genomes_pred = run_prodigal_genomes(genome_files)
         # genomes_pred is a dictionary where the keys are the genome paths and the
         # values are lists. First value of the list is the path to the gene file and
         # second the path to the protein file
