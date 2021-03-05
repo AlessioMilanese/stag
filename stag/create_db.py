@@ -225,7 +225,7 @@ def train_all_classifiers(alignment, taxonomy, penalty_v, solver_v, procs=2):
 def train_classifier(X, y, penalty_v, solver_v, node):
     if y is None:
         return node, X
-    clf = LogisticRegression(random_state=0, penalty = penalty_v, solver=solver_v)
+    clf = LogisticRegression(random_state=0, penalty = penalty_v, solver=solver_v, max_iter=4000)
     clf.fit(X, y)
     return node, clf
 
