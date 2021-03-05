@@ -28,7 +28,7 @@ def handle_error(error, help_f=None):
     if help_f:
         help_f()
     print_error()
-	raise ValueError(error)
+    raise ValueError(error)
 
 # ------------------------------------------------------------------------------
 #       print the help informations
