@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Author: Alessio Milanese <milanese.alessio@gmail.com>
 
 # Input:
